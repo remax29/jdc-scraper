@@ -1,36 +1,59 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# JDC Scraper
+
+[![Netlify](https://www.netlify.com/img/global/badges/netlify-color-accent.svg)](https://www.netlify.com)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
+**Free B2B lead generation tool — bring your own API keys, no subscription, no data lock-in.**
+
+Built by [JDC Tech Solutions](https://jdctechsolutions.com).
+
+---
+
+## What it does
+
+Paste your API keys, describe your target (keyword + location + industry), and get a clean CSV of verified B2B contacts ready for outreach. No per-search fees. Your keys, your quota, your data.
+
+## Features
+
+- Keyword + location targeting
+- Email verification via Hunter.io
+- CSV / Excel export — you own the leads
+- Segment tagging (agency, clinic, restaurant, etc.)
+- BYOK — bring your own OpenAI, Apollo.io & Hunter.io keys
+- No monthly subscription
+
+## Tech Stack
+
+Next.js · TypeScript · Supabase · OpenAI · Apollo.io · Hunter.io · [Apify](https://apify.com?fpr=jdctechsolutions)
 
 ## Getting Started
 
-First, run the development server:
-
 ```bash
+npm install
+cp .env.example .env.local   # add your API keys
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Environment Variables
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+| Variable | Description |
+|---|---|
+| `NEXT_PUBLIC_SUPABASE_URL` | Supabase project URL |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon key |
+| `OPENAI_API_KEY` | OpenAI key (user-supplied at runtime) |
+| `APOLLO_API_KEY` | Apollo.io key (user-supplied at runtime) |
+| `HUNTER_API_KEY` | Hunter.io key (user-supplied at runtime) |
 
-## Learn More
+## Contributing
 
-To learn more about Next.js, take a look at the following resources:
+Pull requests are welcome. Please read [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) before contributing.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## License
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+MIT — see [LICENSE](LICENSE).
 
-## Deploy on Vercel
+---
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+This project is powered by [Netlify](https://www.netlify.com).
