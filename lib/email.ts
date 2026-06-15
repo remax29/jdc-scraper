@@ -1,9 +1,14 @@
 import { Resend } from 'resend'
 import { signToken } from './unsubscribe'
 
-const resend = new Resend(process.env.RESEND_API_KEY)
-const email = process.env.RESEND_FROM_EMAIL ?? 'noreply@jdctechsolutions.com'
-export const FROM = `- NO REPLY - JDC Tech Solutions <${email}>`
+function getResend() {
+  return new Resend(process.env.RESEND_API_KEY)
+}
+function getFrom() {
+  const email = process.env.RESEND_FROM_EMAIL ?? 'noreply@jdctechsolutions.com'
+  return `- NO REPLY - JDC Tech Solutions <${email}>`
+}
+export const FROM = 'noreply@jdctechsolutions.com'
 const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000'
 
 function toHtml(text: string, unsubUrl?: string) {
@@ -30,8 +35,8 @@ Open your dashboard: ${SITE}/dashboard
 
 — JDC Tech Solutions`
 
-  return resend.emails.send({
-    from: FROM,
+  return getResend().emails.send({
+    from: getFrom(),
     to,
     subject: "You're in — here's how to get your first 10 leads",
     text,
