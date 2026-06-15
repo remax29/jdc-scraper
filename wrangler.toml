@@ -1,4 +1,4 @@
 name = "jdc-scraper"
 compatibility_date = "2026-06-15"
-compatibility_flags = ["nodejs_compat_v2"]
-pages_build_output_dir = ".vercel/output/static"
+compatibility_flags = ["nodejs_compat"]
+pages_build_output_dir = ".open-next/assets"
