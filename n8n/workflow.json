@@ -1,0 +1,161 @@
+{
+  "name": "JDC BYOK Lead Scraper",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "scrape",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "a1b2c3d4-e5f6-7890-abcd-000000000001",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "jdc-byok-scraper-webhook"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "a1b2c3d4-e5f6-7890-abcd-cond00000001",
+              "leftValue": "={{ $json.headers['x-shared-secret'] }}",
+              "rightValue": "={{ $env.N8N_SHARED_SECRET }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "a1b2c3d4-e5f6-7890-abcd-000000000002",
+      "name": "Check Secret",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [480, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"error\": \"Unauthorized\" }",
+        "options": {
+          "responseCode": 401
+        }
+      },
+      "id": "a1b2c3d4-e5f6-7890-abcd-000000000003",
+      "name": "Respond 401",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [720, 480]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// ── Step 1: Parse request body ──────────────────────────────────\nconst body = $input.all()[0].json.body;\nconst apifyToken = body.apify_token;\nconst target = (body.target || '').trim();\nconst keywords = Array.isArray(body.keywords) ? body.keywords : [];\n\n// ── Step 2: Build search query ───────────────────────────────────\nconst extras = keywords.length ? keywords.join(' ') : 'contact email';\nconst query = `${target} ${extras}`.trim();\n\n// ── Step 3: Apify Google SERP scraper (sync, ~20-30s) ───────────\nlet rawResults = [];\ntry {\n  rawResults = await $helpers.httpRequest({\n    method: 'POST',\n    url: `https://api.apify.com/v2/acts/apify~google-search-scraper/run-sync-get-dataset-items?token=${apifyToken}`,\n    headers: { 'Content-Type': 'application/json' },\n    body: JSON.stringify({\n      queries: query,\n      maxPagesPerQuery: 1,\n      resultsPerPage: 10,\n      saveHtml: false,\n      saveMarkdown: false,\n    }),\n  });\n  if (!Array.isArray(rawResults)) rawResults = [];\n} catch (err) {\n  console.error('[Search] Apify error:', String(err));\n  return [{ json: { _empty: true } }];\n}\n\n// ── Step 4: Dedupe by domain + filter by keyword relevance ───────\nconst kwLower = keywords.map(k => k.toLowerCase());\nconst seen = new Set();\nconst output = [];\n\nfor (const r of rawResults) {\n  const url = r.url || r.canonicalUrl || '';\n  if (!url) continue;\n\n  let domain = '';\n  try { domain = new URL(url).hostname.replace(/^www\\./, ''); }\n  catch { domain = url; }\n\n  if (!domain || seen.has(domain)) continue;\n  seen.add(domain);\n\n  const text = `${r.title || ''} ${r.description || ''}`.toLowerCase();\n  const relevant = kwLower.length === 0 || kwLower.some(k => text.includes(k));\n  if (!relevant) continue;\n\n  const company = (r.title || domain).split(/[|\\-\\u2013\\u00b7]/)[0].trim();\n  // Pass _body so Apollo/Hunter keys are accessible downstream\n  output.push({ json: { url, domain, company, _body: body } });\n}\n\nreturn output.length > 0 ? output : [{ json: { _empty: true } }];"
+      },
+      "id": "a1b2c3d4-e5f6-7890-abcd-000000000004",
+      "name": "Search Companies",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [720, 300]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Skip the empty sentinel produced when Apify finds nothing\nconst item = $input.item.json;\nif (item._empty) return [];\n\nconst { company, domain, url } = item;\nconst body = item._body;\nconst apolloKey = body.apollo_key;\nconst hunterKey = body.hunter_key;\n\n// ── Apollo People Search (free — no credits used) ────────────────\nlet people = [];\ntry {\n  const sr = await $helpers.httpRequest({\n    method: 'POST',\n    url: 'https://api.apollo.io/api/v1/mixed_people/search',\n    headers: { 'Content-Type': 'application/json', 'x-api-key': apolloKey },\n    body: JSON.stringify({\n      q_keywords: company,\n      organization_domains: [domain],\n      person_titles: ['owner', 'founder', 'ceo', 'coo', 'director', 'manager', 'president'],\n      page: 1,\n      per_page: 3,\n    }),\n  });\n  people = sr.people || [];\n} catch {\n  return [];\n}\n\nconst leads = [];\n\nfor (const person of people.slice(0, 3)) {\n  if (!person.id) continue;\n  try {\n    // ── Apollo People Match (1 credit — reveals email) ────────────\n    const mr = await $helpers.httpRequest({\n      method: 'POST',\n      url: 'https://api.apollo.io/api/v1/people/match',\n      headers: { 'Content-Type': 'application/json', 'x-api-key': apolloKey },\n      body: JSON.stringify({ id: person.id }),\n    });\n    const p = mr.person || {};\n    if (!p.email) continue;\n\n    // ── Hunter Email Verifier (0.5 credits) ──────────────────────\n    const vr = await $helpers.httpRequest({\n      method: 'GET',\n      url: `https://api.hunter.io/v2/email-verifier?email=${encodeURIComponent(p.email)}&api_key=${hunterKey}`,\n    });\n    const vd = vr.data || {};\n\n    // Accept: valid, or accept_all with confidence ≥ 80\n    const accepted =\n      vd.status === 'valid' ||\n      (vd.status === 'accept_all' && (vd.score ?? 0) >= 80);\n    if (!accepted) continue;\n\n    leads.push({ json: {\n      company:      p.organization_name || company,\n      contact_name: p.name || person.name || '',\n      title:        p.title || person.title || '',\n      email:        p.email,\n      email_status: vd.status || 'unknown',\n      source_url:   url,\n    }});\n  } catch {\n    continue; // skip person on rate-limit or API error\n  }\n}\n\nreturn leads;"
+      },
+      "id": "a1b2c3d4-e5f6-7890-abcd-000000000005",
+      "name": "Enrich Leads",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [960, 300]
+    },
+    {
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "destinationFieldName": "leads",
+        "options": {}
+      },
+      "id": "a1b2c3d4-e5f6-7890-abcd-000000000006",
+      "name": "Aggregate Leads",
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [1200, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json.leads ?? []) }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "a1b2c3d4-e5f6-7890-abcd-000000000007",
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1440, 300]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          { "node": "Check Secret", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Check Secret": {
+      "main": [
+        [
+          { "node": "Search Companies", "type": "main", "index": 0 }
+        ],
+        [
+          { "node": "Respond 401", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Search Companies": {
+      "main": [
+        [
+          { "node": "Enrich Leads", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Enrich Leads": {
+      "main": [
+        [
+          { "node": "Aggregate Leads", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Aggregate Leads": {
+      "main": [
+        [
+          { "node": "Respond", "type": "main", "index": 0 }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": ""
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "id": "a1b2c3d4-e5f6-7890-abcd-000000000099",
+  "tags": []
+}
