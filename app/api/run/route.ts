@@ -51,55 +51,42 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'n8n not configured on this server.' }, { status: 500 })
   }
 
-  // Keys forwarded to n8n — never logged, never persisted
-  let leads: Record<string, string>[] = []
-  try {
-    const n8nRes = await fetch(webhookUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Shared-Secret': sharedSecret,
-      },
-      body: JSON.stringify({ target, keywords, apify_token, apollo_key, hunter_key }),
-      signal: AbortSignal.timeout(120_000),
-    })
-    if (!n8nRes.ok) throw new Error(`n8n ${n8nRes.status}`)
-    const raw = await n8nRes.json()
-    leads = Array.isArray(raw) ? raw : []
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err)
-    console.error('[api/run] n8n error:', msg)
-    return NextResponse.json(
-      { error: 'Scrape failed. Check your API keys and try again.' },
-      { status: 502 }
-    )
-  }
-
-  // Persist run + leads (no key data stored)
+  // Create the run row immediately with status 'pending'
   const { data: run, error: runErr } = await supabase
     .from('runs')
-    .insert({ user_id: user.id, keywords: Array.isArray(keywords) ? keywords : [], lead_count: leads.length })
+    .insert({
+      user_id: user.id,
+      keywords: Array.isArray(keywords) ? keywords : [],
+      lead_count: 0,
+      status: 'pending',
+    })
     .select('id')
     .single()
 
   if (runErr || !run) {
-    return NextResponse.json({ error: 'Failed to save run.' }, { status: 500 })
+    return NextResponse.json({ error: 'Failed to create run.' }, { status: 500 })
   }
 
-  if (leads.length > 0) {
-    await supabase.from('leads').insert(
-      leads.map((l) => ({
-        run_id: run.id,
-        user_id: user.id,
-        company: l.company ?? '',
-        contact_name: l.contact_name ?? l.name ?? '',
-        title: l.title ?? l.job_title ?? '',
-        email: l.email ?? '',
-        email_status: l.email_status ?? l.emailStatus ?? 'unknown',
-        source_url: l.source_url ?? l.url ?? '',
-      }))
-    )
-  }
+  // Fire-and-forget: send to n8n with runId so it can POST back to /api/run/callback
+  // Keys are forwarded but never logged or persisted
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? ''
+  fetch(webhookUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Shared-Secret': sharedSecret,
+    },
+    body: JSON.stringify({
+      runId: run.id,
+      callbackUrl: `${siteUrl}/api/run/callback`,
+      target,
+      keywords,
+      apify_token,
+      apollo_key,
+      hunter_key,
+    }),
+  }).catch((err) => console.error('[api/run] n8n fire-and-forget error:', err))
 
-  return NextResponse.json({ runId: run.id, count: leads.length })
+  // Return immediately — client will poll /api/run/status/:runId
+  return NextResponse.json({ runId: run.id })
 }

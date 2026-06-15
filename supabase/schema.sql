@@ -31,6 +31,7 @@ create table runs (
   user_id uuid references auth.users(id) on delete cascade,
   keywords text[],
   lead_count int default 0,
+  status text not null default 'pending', -- 'pending' | 'done' | 'error'
   created_at timestamptz default now()
 );
 
